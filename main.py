@@ -1,4 +1,5 @@
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -6,6 +7,21 @@ from yamete_claudesai.app import run
 from yamete_claudesai.config import AppConfig, load_config, save_config
 from yamete_claudesai.settings import write_audio_assignments
 from yamete_claudesai.state import AppState
+
+_AUDIO_EXTENSIONS = {".mp3", ".wav", ".aiff", ".m4a", ".ogg", ".flac"}
+
+
+def _bootstrap() -> None:
+    config_dir = Path.home() / ".config" / "yamete-kudasai"
+    if config_dir.exists():
+        return
+    audio_dir = config_dir / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    sounds_src = Path(__file__).parent / "sounds"
+    if sounds_src.is_dir():
+        for f in sounds_src.iterdir():
+            if f.suffix.lower() in _AUDIO_EXTENSIONS:
+                shutil.copy2(f, audio_dir / f.name)
 
 
 def _apply(json_path: Path) -> None:
@@ -36,6 +52,7 @@ def _apply(json_path: Path) -> None:
 
 
 def main() -> None:
+    _bootstrap()
     if len(sys.argv) >= 3 and sys.argv[1] == "apply":
         _apply(Path(sys.argv[2]))
     else:

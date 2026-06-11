@@ -11,7 +11,7 @@ from textual.widgets import Button, Footer, Header, ListView
 
 from yamete_claudesai.config import AppConfig, load_config, save_config
 from yamete_claudesai.hooks import HOOKS
-from yamete_claudesai.settings import write_audio_assignments
+from yamete_claudesai.settings import backup_settings, write_audio_assignments
 from yamete_claudesai.state import AppState, AudioStatus
 from yamete_claudesai.widgets.add_audio_modal import AddAudioModal
 from yamete_claudesai.widgets.assign_modal import AssignModal
@@ -261,6 +261,7 @@ class YameteApp(App):
             if not isinstance(incoming, dict):
                 self.notify("Unexpected format", severity="error", title="Import failed")
                 return
+            backup_settings(path=self._settings_path)
             self._state.merge_assignments(incoming)
             self._refresh_right_panel()
             total = sum(len(v) for v in incoming.values())

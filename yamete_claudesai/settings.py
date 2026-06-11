@@ -6,6 +6,15 @@ from pathlib import Path
 _DEFAULT_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 
 
+def backup_settings(path: Path | None = None) -> Path | None:
+    p = path or _DEFAULT_SETTINGS_PATH
+    if not p.exists():
+        return None
+    backup = p.with_suffix(".json.bak")
+    backup.write_text(p.read_text())
+    return backup
+
+
 def read_settings(path: Path | None = None) -> dict:
     p = path or _DEFAULT_SETTINGS_PATH
     if not p.exists():
@@ -39,6 +48,7 @@ def write_audio_assignments(
     Single file: plain afplay command. Multiple files: bash picks one via date +%s mod N.
     """
     p = path or _DEFAULT_SETTINGS_PATH
+    backup_settings(path=p)
     settings = read_settings(path=p)
     hooks_section: dict[str, list] = settings.setdefault("hooks", {})
 
