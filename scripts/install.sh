@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="https://github.com/aryan-curiel/yamete-claudesai.git"
-CLONE_DIR="${TMPDIR:-/tmp}/yamete-claudesai-install"
-
-echo "Cloning yamete-claudesai..."
-rm -rf "$CLONE_DIR"
-git clone --depth 1 "$REPO_URL" "$CLONE_DIR"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Installing dependencies..."
-cd "$CLONE_DIR"
+cd "$SCRIPT_DIR/.."
 uv sync
 
 echo "Applying default selections..."
