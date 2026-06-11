@@ -80,6 +80,27 @@ uv run python main.py
 
 The app only touches `afplay` entries it owns — any other hooks you have configured (e.g. `osascript` notifications) are left untouched.
 
+### Importing assignments
+
+You can apply a saved assignments file without opening the TUI:
+
+```bash
+uv run python main.py apply assignments.json
+```
+
+The JSON file must have an `assignments` key mapping hook names to lists of filenames:
+
+```json
+{
+  "assignments": {
+    "Stop": ["arigato.mp3"],
+    "Notification": ["anime-nani.mp3"]
+  }
+}
+```
+
+Incoming entries are **merged** into the existing config — nothing already assigned is removed.
+
 ## How it works
 
 On **Confirm**, `write_audio_assignments()` in `settings.py` scans `~/.claude/settings.json`, removes any existing entries where every command is an `afplay` call (those are "ours"), and rewrites them with the current assignments. The app config (audio dir + assignments) is persisted separately in `~/.config/yamete-kudasai/config.json`.

@@ -1,0 +1,28 @@
+{
+  "assignments": {
+    "SessionEnd": [
+      "arigato-long.mp3"
+    ],
+    "Stop": [
+      "anime-pasu.wav"
+    ],
+    "PermissionRequest": [
+      "anime-etto.wav"
+    ],
+    "PermissionDenied": [
+      "anime-nani.mp3"
+    ],
+    "PreCompact": [
+      "yamate-kudesai.mp3"
+    ],
+    "PostCompact": [
+      "anime-wow.wav"
+    ],
+    "TaskCompleted": [
+      "arigato.mp3"
+    ],
+    "UserPromptSubmit": [
+      "arigato.mp3"
+    ]
+  }
+}

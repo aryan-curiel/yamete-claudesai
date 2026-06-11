@@ -1,8 +1,45 @@
+import json
+import sys
+from pathlib import Path
+
 from yamete_claudesai.app import run
+from yamete_claudesai.config import AppConfig, load_config, save_config
+from yamete_claudesai.settings import write_audio_assignments
+from yamete_claudesai.state import AppState
+
+
+def _apply(json_path: Path) -> None:
+    if not json_path.exists():
+        print(f"error: file not found: {json_path}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        raw = json.loads(json_path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"error: could not read {json_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    incoming: dict[str, list[str]] = raw.get("assignments", {})
+    if not isinstance(incoming, dict):
+        print("error: unexpected format — missing 'assignments' dict", file=sys.stderr)
+        sys.exit(1)
+
+    cfg = load_config()
+    state = AppState.from_assignments(cfg.assignments)
+    state.merge_assignments(incoming)
+    merged = state.to_assignments_dict()
+
+    write_audio_assignments(assignments=merged, audio_dir=cfg.audio_dir)
+    save_config(AppConfig(audio_dir=cfg.audio_dir, assignments=merged))
+
+    total = sum(len(v) for v in incoming.values())
+    print(f"Applied {total} assignment(s) from '{json_path.name}' → ~/.claude/settings.json")
 
 
 def main() -> None:
-    run()
+    if len(sys.argv) >= 3 and sys.argv[1] == "apply":
+        _apply(Path(sys.argv[2]))
+    else:
+        run()
 
 
 if __name__ == "__main__":
