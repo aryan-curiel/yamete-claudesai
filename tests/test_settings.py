@@ -50,8 +50,12 @@ def test_write_multiple_files_same_hook(tmp_path):
     p = tmp_path / "settings.json"
     write_audio_assignments({"Stop": ["a.mp3", "b.mp3"]}, audio_dir=Path("/audio"), path=p)
     commands = _all_commands(p, "Stop")
-    assert "afplay /audio/a.mp3" in commands
-    assert "afplay /audio/b.mp3" in commands
+    assert len(commands) == 1
+    cmd = commands[0]
+    assert "bash -c" in cmd
+    assert "date +%s" in cmd
+    assert "/audio/a.mp3" in cmd
+    assert "/audio/b.mp3" in cmd
 
 
 def test_write_empty_assignments_clears_afplay(tmp_path):

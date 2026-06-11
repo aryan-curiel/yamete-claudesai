@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, ScrollableContainer
+from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.widgets import Button, Footer, Header, ListView
 
 from yamete_claudesai.config import AppConfig, load_config, save_config
 from yamete_claudesai.hooks import HOOKS
 from yamete_claudesai.settings import write_audio_assignments
 from yamete_claudesai.state import AppState, AudioStatus
+from yamete_claudesai.widgets.add_audio_modal import AddAudioModal
 from yamete_claudesai.widgets.assign_modal import AssignModal
-from yamete_claudesai.widgets.audio_sidebar import AudioListItem, AudioSidebar
+from yamete_claudesai.widgets.audio_sidebar import AUDIO_EXTENSIONS, AudioListItem, AudioSidebar
+from yamete_claudesai.widgets.confirm_import_modal import ConfirmImportModal
 from yamete_claudesai.widgets.hook_box import HookBox
+from yamete_claudesai.widgets.question_modal import QuestionModal
 
 
 class YameteApp(App):
@@ -21,11 +26,18 @@ class YameteApp(App):
     CSS = """
     Screen { layout: vertical; }
     #main-area { layout: horizontal; height: 1fr; }
-    #right-panel { width: 1fr; height: 1fr; overflow-y: auto; padding: 0 1; }
+    #right-col { width: 1fr; height: 1fr; layout: vertical; }
+    #right-panel { height: 1fr; overflow-y: auto; padding: 0 1; }
     #confirm-bar { height: auto; padding: 0 1; align: right middle; }
     """
 
-    BINDINGS = [("q", "quit", "Quit")]
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("a", "add_audio", "Add Audio"),
+        ("p", "play_audio", "Play"),
+        ("space", "assign_audio", "Assign"),
+        ("d", "delete_audio", "Delete"),
+    ]
 
     def __init__(
         self,
@@ -43,18 +55,27 @@ class YameteApp(App):
         yield Header()
         with Horizontal(id="main-area"):
             yield AudioSidebar(self._audio_dir)
-            with ScrollableContainer(id="right-panel"):
-                for hook in HOOKS:
-                    if self._state.assignments.get(hook.name):
-                        yield HookBox(hook.name, hook.description, self._state)
-        with Horizontal(id="confirm-bar"):
-            yield Button("Confirm", variant="success", id="btn-confirm-all")
+            with Vertical(id="right-col"):
+                with ScrollableContainer(id="right-panel"):
+                    for hook in HOOKS:
+                        if self._state.assignments.get(hook.name):
+                            yield HookBox(hook.name, hook.description, self._state)
+                with Horizontal(id="confirm-bar"):
+                    yield Button("Confirm", variant="success", id="btn-confirm-all")
         yield Footer()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if not isinstance(event.item, AudioListItem):
             return
-        filename = event.item.filename
+        self._open_assign_modal(event.item.filename)
+
+    def action_assign_audio(self) -> None:
+        lv = self.query_one("#audio-list", ListView)
+        item = lv.highlighted_child
+        if isinstance(item, AudioListItem):
+            self._open_assign_modal(item.filename)
+
+    def _open_assign_modal(self, filename: str) -> None:
         currently_assigned = self._state.get_assigned_hooks(filename)
 
         def handle_result(result: set[str] | None) -> None:
@@ -101,6 +122,127 @@ class YameteApp(App):
         self._state.commit()
         self._refresh_right_panel()
         self.notify("Written to ~/.claude/settings.json", title="Saved ✓")
+
+    # ── Add Audio ────────────────────────────────────────────────────────────
+
+    def action_add_audio(self) -> None:
+        self._open_add_audio_picker()
+
+    def action_delete_audio(self) -> None:
+        lv = self.query_one("#audio-list", ListView)
+        item = lv.highlighted_child
+        if not isinstance(item, AudioListItem):
+            return
+        filename = item.filename
+
+        def handle_confirm(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            path = self._audio_dir / filename
+            path.unlink(missing_ok=True)
+            for hook in HOOKS:
+                active_files = {
+                    e.filename
+                    for e in self._state.assignments.get(hook.name, [])
+                    if e.status != AudioStatus.REMOVED and e.filename != filename
+                }
+                self._state.set_hook_assignments(hook.name, active_files)
+            self._refresh_right_panel()
+            self.query_one(AudioSidebar).reload_files()
+            self.notify(f"Deleted {filename!r}", title="Deleted")
+
+        self.push_screen(QuestionModal(f"Delete '{filename}'?"), handle_confirm)
+
+    def action_play_audio(self) -> None:
+        lv = self.query_one("#audio-list", ListView)
+        item = lv.highlighted_child
+        if not isinstance(item, AudioListItem):
+            return
+        path = self._audio_dir / item.filename
+        subprocess.Popen(["afplay", str(path)])
+
+    def on_audio_sidebar_add_audio_requested(
+        self, _event: AudioSidebar.AddAudioRequested
+    ) -> None:
+        self._open_add_audio_picker()
+
+    def _open_add_audio_picker(self) -> None:
+        def handle_picker(selected: Path | None) -> None:
+            if selected is None:
+                return
+            if selected.is_file():
+                self._handle_single_file(selected)
+            else:
+                self._handle_folder(selected)
+
+        self.push_screen(AddAudioModal(Path.home()), handle_picker)
+
+    def _handle_single_file(self, path: Path) -> None:
+        if path.suffix.lower() not in AUDIO_EXTENSIONS:
+            self.notify(
+                f"{path.name!r} is not a supported audio format",
+                severity="error",
+                title="Unsupported file",
+            )
+            return
+
+        def handle_confirm(confirmed: bool) -> None:
+            if confirmed:
+                self._do_copy_files([path])
+
+        self.push_screen(ConfirmImportModal([path]), handle_confirm)
+
+    def _handle_folder(self, folder: Path) -> None:
+        def handle_folder_question(confirmed: bool) -> None:
+            if not confirmed:
+                return
+            audio_files = sorted(
+                p for p in folder.rglob("*")
+                if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS
+            )
+            if not audio_files:
+                self.notify(
+                    "No supported audio files found in that folder",
+                    severity="warning",
+                    title="Nothing found",
+                )
+                return
+
+            def handle_import_confirm(confirmed: bool) -> None:
+                if confirmed:
+                    self._do_copy_files(audio_files)
+
+            self.push_screen(ConfirmImportModal(audio_files), handle_import_confirm)
+
+        self.push_screen(
+            QuestionModal(f"Add all audio files from '{folder.name}'?"),
+            handle_folder_question,
+        )
+
+    def _do_copy_files(self, files: list[Path]) -> None:
+        self._audio_dir.mkdir(parents=True, exist_ok=True)
+        skipped: list[str] = []
+        copied = 0
+        for src in files:
+            dest = self._audio_dir / src.name
+            if dest.exists():
+                skipped.append(src.name)
+            else:
+                shutil.copy2(src, dest)
+                copied += 1
+
+        for name in skipped:
+            self.notify(
+                f"{name!r} already exists — skipped",
+                severity="warning",
+                title="Skipped",
+            )
+
+        if copied:
+            self.query_one(AudioSidebar).reload_files()
+            self.notify(f"Added {copied} file(s)", title="Imported ✓")
+        elif not skipped:
+            self.notify("No files were copied", severity="warning")
 
 
 def run() -> None:

@@ -4,7 +4,12 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Input, Label, ListItem, ListView
+from textual.message import Message
+from textual.widgets import Button, Input, Label, ListItem, ListView
+
+AUDIO_EXTENSIONS: frozenset[str] = frozenset(
+    {".mp3", ".wav", ".aiff", ".m4a", ".ogg", ".flac"}
+)
 
 
 class AudioListItem(ListItem):
@@ -20,8 +25,9 @@ class AudioListItem(ListItem):
 
 class AudioSidebar(Vertical):
     """
-    Left sidebar: search input + scrollable file list.
+    Left sidebar: add button + search input + scrollable file list.
     Emits ListView.Selected (item is AudioListItem) when user presses Enter.
+    Emits AudioSidebar.AddAudioRequested when the Add button is pressed.
     """
 
     DEFAULT_CSS = """
@@ -30,11 +36,13 @@ class AudioSidebar(Vertical):
         height: 1fr;
         border: round $primary-darken-2;
     }
+    AudioSidebar #btn-add-audio { width: 1fr; height: auto; }
     AudioSidebar Input  { width: 1fr; }
     AudioSidebar ListView { width: 1fr; height: 1fr; }
     """
 
-    _EXTENSIONS = {".mp3", ".wav", ".aiff", ".m4a", ".ogg", ".flac"}
+    class AddAudioRequested(Message):
+        """Posted when the user clicks the Add Audio button."""
 
     def __init__(self, audio_dir: Path) -> None:
         super().__init__()
@@ -44,19 +52,24 @@ class AudioSidebar(Vertical):
     def compose(self) -> ComposeResult:
         yield Input(placeholder="Search...", id="search-input")
         yield ListView(id="audio-list")
+        yield Button("+ Add Audio Files", id="btn-add-audio", variant="primary")
 
     def on_mount(self) -> None:
+        self._reload_files()
+
+    def reload_files(self) -> None:
         self._reload_files()
 
     def _reload_files(self) -> None:
         if self._audio_dir.exists():
             self._all_files = sorted(
                 p.name for p in self._audio_dir.iterdir()
-                if p.suffix.lower() in self._EXTENSIONS
+                if p.suffix.lower() in AUDIO_EXTENSIONS
             )
         else:
             self._all_files = []
-        self._apply_filter("")
+        search = self.query_one("#search-input", Input).value
+        self._apply_filter(search)
 
     def _apply_filter(self, query: str) -> None:
         lv = self.query_one("#audio-list", ListView)
@@ -68,3 +81,8 @@ class AudioSidebar(Vertical):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self._apply_filter(event.value)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-add-audio":
+            event.stop()
+            self.post_message(self.AddAudioRequested())
