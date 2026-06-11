@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -37,6 +38,8 @@ class YameteApp(App):
         ("p", "play_audio", "Play"),
         ("space", "assign_audio", "Assign"),
         ("d", "delete_audio", "Delete"),
+        ("e", "export_selections", "Export"),
+        ("i", "import_selections", "Import"),
     ]
 
     def __init__(
@@ -45,7 +48,7 @@ class YameteApp(App):
         settings_path: Path | None = None,
     ) -> None:
         super().__init__()
-        self._config_dir = config_dir
+        self._config_dir = config_dir or Path.home() / ".config" / "yamete-kudasai"
         self._settings_path = settings_path
         cfg = load_config(config_dir=config_dir)
         self._audio_dir = cfg.audio_dir
@@ -218,6 +221,55 @@ class YameteApp(App):
             QuestionModal(f"Add all audio files from '{folder.name}'?"),
             handle_folder_question,
         )
+
+    # ── Export / Import ──────────────────────────────────────────────────────
+
+    def action_export_selections(self) -> None:
+        export_path = self._config_dir / "selections.json"
+        self._config_dir.mkdir(parents=True, exist_ok=True)
+        data = {"assignments": self._state.to_assignments_dict()}
+        existing: dict = {}
+        if export_path.exists():
+            try:
+                existing = json.loads(export_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        for hook, filenames in data["assignments"].items():
+            existing_list: list[str] = existing.setdefault("assignments", {}).get(hook, [])
+            merged = list(dict.fromkeys(existing_list + filenames))
+            existing.setdefault("assignments", {})[hook] = merged
+        export_path.write_text(json.dumps(existing, indent=2))
+        self.notify(str(export_path), title="Exported ✓")
+
+    def action_import_selections(self) -> None:
+        def handle_picked(path: Path | None) -> None:
+            if path is None or not path.is_file():
+                return
+            if path.suffix.lower() != ".json":
+                self.notify(
+                    f"{path.name!r} is not a JSON file",
+                    severity="error",
+                    title="Invalid file",
+                )
+                return
+            try:
+                raw = json.loads(path.read_text())
+            except (json.JSONDecodeError, OSError) as exc:
+                self.notify(str(exc), severity="error", title="Could not read file")
+                return
+            incoming: dict[str, list[str]] = raw.get("assignments", {})
+            if not isinstance(incoming, dict):
+                self.notify("Unexpected format", severity="error", title="Import failed")
+                return
+            self._state.merge_assignments(incoming)
+            self._refresh_right_panel()
+            total = sum(len(v) for v in incoming.values())
+            self.notify(
+                f"Merged {total} assignment(s) from {path.name!r}",
+                title="Imported ✓",
+            )
+
+        self.push_screen(AddAudioModal(Path.home()), handle_picked)
 
     def _do_copy_files(self, files: list[Path]) -> None:
         self._audio_dir.mkdir(parents=True, exist_ok=True)

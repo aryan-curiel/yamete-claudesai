@@ -54,6 +54,16 @@ class AppState:
             if any(e.status != AudioStatus.REMOVED for e in entries)
         }
 
+    def merge_assignments(self, incoming: dict[str, list[str]]) -> None:
+        """Append filenames from incoming into current state without replacing existing ones."""
+        for hook, filenames in incoming.items():
+            active = {
+                e.filename
+                for e in self.assignments.get(hook, [])
+                if e.status != AudioStatus.REMOVED
+            }
+            self.set_hook_assignments(hook, active | set(filenames))
+
     def get_assigned_hooks(self, filename: str) -> set[str]:
         return {
             hook
